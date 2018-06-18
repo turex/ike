@@ -1,4 +1,14 @@
 ================================================================================
+IMPORTANT NOTES
+================================================================================
+
+This is a fork from the ike shrew software client. Original source code can be
+found here - https://www.shrew.net/software. The reason for this fork is to add
+support for multi level certificates (a certificate chain) on the config, by
+introducing this patch - https://www.mail-archive.com/vpn-help@lists.shrew.net/msg00469.html
+enjoy :)
+
+================================================================================
 ABOUT
 ================================================================================
 
