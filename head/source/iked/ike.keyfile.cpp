@@ -48,13 +48,13 @@
 #if OPENSSL_VERSION_NUMBER >= 0x00908000L
 # define D2I_X509_CONST const
 #else
-# define D2I_X509_CONST 
+# define D2I_X509_CONST
 #endif
 
 #if OPENSSL_VERSION_NUMBER >= 0x00907000L
 # define D2I_RSA_CONST const
 #else
-# define D2I_RSA_CONST 
+# define D2I_RSA_CONST
 #endif
 
 void log_openssl_errors()
@@ -89,15 +89,46 @@ bool cert_2_bdata( BDATA & cert, X509 * x509 )
 	return true;
 }
 
+bool _IKED::certs_2_bdata( BDATA & certs, STACK_OF(X509) * x509_chain )
+{
+	int size = i2d_ASN1_SET_OF_X509(x509_chain, NULL, i2d_X509,
+		V_ASN1_SEQUENCE, V_ASN1_UNIVERSAL, IS_SEQUENCE);
+
+	certs.size( size );
+	unsigned char * cert_buff = certs.buff();
+
+	if( i2d_ASN1_SET_OF_X509(x509_chain, &cert_buff, i2d_X509,
+		V_ASN1_SEQUENCE, V_ASN1_UNIVERSAL, IS_SEQUENCE) < size )
+	{
+		return false;
+	}
+	return true;
+}
+
 bool bdata_2_cert( X509 ** x509, BDATA & cert )
 {
 	D2I_X509_CONST unsigned char * cert_buff = cert.buff();
 
 	*x509 = d2i_X509( NULL, &cert_buff, ( long ) cert.size() );
 	if( *x509 == NULL )
+	{
 		return false;
-
+	}
 	return true;
+}
+
+bool _IKED::bdata_2_certs( STACK_OF(X509) ** x509_chain, BDATA & certs )
+{
+	D2I_X509_CONST unsigned char * cert_buff = certs.buff();
+	*x509_chain = d2i_ASN1_SET_OF_X509( NULL, &cert_buff,
+		( long ) certs.size(), d2i_X509, X509_free,
+		V_ASN1_SEQUENCE, V_ASN1_UNIVERSAL);
+
+		if( *x509_chain == NULL )
+		{
+			return false;
+		}
+		return true;
 }
 
 bool prvkey_rsa_2_bdata( BDATA & prvkey, RSA * rsa )
@@ -242,6 +273,235 @@ long _IKED::cert_load( BDATA & cert, char * fpath, bool ca, BDATA & pass )
 		loaded = cert_load_p12( cert, fp, ca, pass );
 
 	fclose( fp );
+
+	if( !loaded )
+	{
+		log_openssl_errors();
+		return FILE_FAIL;
+	}
+
+	return FILE_OK;
+}
+
+bool _IKED::certs_load_pem( BDATA & certs, FILE * fp, bool ca, BDATA & pass )
+{
+	fseek( fp, 0, SEEK_SET );
+
+	STACK_OF(X509) *cert_chain = sk_X509_new_null();
+
+	STACK_OF(X509_INFO) *allcerts = NULL;
+
+	allcerts = PEM_X509_INFO_read(fp, NULL, password_cb, &pass);
+
+	if (allcerts == NULL || sk_X509_INFO_num(allcerts) == 0)
+	{
+		sk_X509_free(cert_chain);
+		return (false);
+	}
+
+	for (int i = 0; i < sk_X509_INFO_num(allcerts); i++)
+	{
+		X509_INFO *xi = sk_X509_INFO_value (allcerts, i);
+		if (xi->x509)
+		{
+			sk_X509_push(cert_chain, xi->x509);
+			xi->x509 = NULL;
+		}
+	}
+
+	certs_2_bdata( certs, cert_chain );
+	sk_X509_INFO_pop_free(allcerts, X509_INFO_free);
+
+	return (true);
+}
+
+bool _IKED::certs_load_pem( BDATA & certs, BDATA & input, bool ca, BDATA & pass )
+{
+	BIO * bp = BIO_new( BIO_s_mem() );
+	if( bp == NULL )
+		return false;
+
+	if( BIO_write( bp, input.buff(), ( int ) input.size() ) < 0 )
+	{
+		BIO_free_all( bp );
+		return false;
+	}
+
+	STACK_OF(X509) *cert_chain = sk_X509_new_null();
+
+	STACK_OF(X509_INFO) *allcerts = NULL;
+
+	allcerts = PEM_X509_INFO_read_bio( bp, NULL, password_cb, &pass );
+
+	BIO_free_all( bp );
+
+	if (allcerts == NULL || sk_X509_INFO_num(allcerts) == 0)
+	{
+		sk_X509_free(cert_chain);
+		return (false);
+	}
+
+	for (int i = 0; i < sk_X509_INFO_num(allcerts); i++)
+	{
+		X509_INFO *xi = sk_X509_INFO_value (allcerts, i);
+		if (xi->x509)
+		{
+			sk_X509_push(cert_chain, xi->x509);
+			xi->x509 = NULL;
+		}
+	}
+
+	certs_2_bdata( certs, cert_chain );
+	sk_X509_INFO_pop_free(allcerts, X509_INFO_free);
+
+	return (true);
+}
+
+bool _IKED::certs_load_p12( BDATA & certs, FILE * fp, bool ca, BDATA & pass )
+{
+	fseek( fp, 0, SEEK_SET );
+
+	PKCS12 * p12 = d2i_PKCS12_fp( fp, NULL );
+
+	if( p12 == NULL )
+		return false;
+
+	X509 * x509 = NULL;
+	BDATA passnull;
+	passnull.set( pass );
+	passnull.add( 0, 1 );
+
+	if( ca )
+	{
+		STACK_OF( X509 ) * stack = NULL;
+		if( PKCS12_parse( p12, ( const char * ) passnull.buff(), NULL, NULL, &stack ) )
+		{
+			if ( stack == NULL )
+			{
+				PKCS12_free( p12 );
+				return false;
+			}
+
+			certs_2_bdata( certs, stack );
+			sk_X509_free( stack );
+			PKCS12_free( p12 );
+			return true;
+		}
+	}
+	else
+	{
+		PKCS12_parse( p12, ( const char * ) passnull.buff(), NULL, &x509, NULL );
+	}
+
+	PKCS12_free( p12 );
+
+	if( x509 == NULL ) {
+		return false;
+	}
+
+	cert_2_bdata( certs, x509 );
+	X509_free( x509 );
+	return true;
+}
+
+bool _IKED::certs_load_p12( BDATA & certs, BDATA & input, bool ca, BDATA & pass )
+{
+	// PKCS12 required a null terminated password
+	BDATA nullpass;
+	nullpass.set( pass );
+	nullpass.add( "", 1 );
+
+	BIO * bp = BIO_new( BIO_s_mem() );
+	if( bp == NULL )
+		return false;
+
+	if( BIO_write( bp, input.buff(), ( int ) input.size() ) < 0 )
+	{
+		BIO_free_all( bp );
+		return false;
+	}
+
+	PKCS12 * p12 = d2i_PKCS12_bio( bp, NULL );
+
+	BIO_free_all( bp );
+
+	if( p12 == NULL )
+		return false;
+
+	X509 * x509 = NULL;
+
+	if( ca )
+	{
+		STACK_OF( X509 ) * stack = NULL;
+		if( PKCS12_parse( p12, ( const char * ) nullpass.buff(), NULL, NULL, &stack ) )
+		{
+			if ( stack == NULL )
+			{
+				PKCS12_free( p12 );
+				return false;
+			}
+
+			certs_2_bdata( certs, stack );
+			sk_X509_free( stack );
+			PKCS12_free( p12 );
+			return true;
+		}
+	}
+	else
+	{
+		PKCS12_parse( p12, ( const char * ) nullpass.buff(), NULL, &x509, NULL );
+	}
+
+	PKCS12_free( p12 );
+
+	if( x509 == NULL ) {
+		return false;
+	}
+
+	cert_2_bdata( certs, x509 );
+	X509_free( x509 );
+	return true;
+}
+
+long _IKED::certs_load( BDATA & certs, char * fpath, bool ca, BDATA & pass )
+{
+	#ifdef WIN32
+
+		FILE * fp;
+		if( fopen_s( &fp, fpath, "rb" ) )
+		{
+			return FILE_PATH;
+		}
+	#else
+
+		FILE * fp = fopen( fpath, "rb" );
+		if( !fp )
+		{
+			return FILE_PATH;
+		}
+	#endif
+
+	bool loaded = certs_load_pem( certs, fp, ca, pass );
+
+	if( !loaded )
+	{
+		loaded = certs_load_p12( certs, fp, ca, pass );
+	}
+
+	fclose( fp );
+
+	if( !loaded )
+	{
+		return FILE_FAIL;
+	}
+	return FILE_OK;
+}
+
+long _IKED::certs_load( BDATA & certs, BDATA & input, bool ca, BDATA & pass )
+{
+	bool loaded = certs_load_pem( certs, input, ca, pass );
+	if( !loaded )
+		loaded = certs_load_p12( certs, input, ca, pass );
 
 	if( !loaded )
 	{
@@ -404,7 +664,7 @@ bool _IKED::cert_subj( BDATA & cert, BDATA & subj )
 
 	subj.size( size );
 	unsigned char * temp = subj.buff();
-	
+
 	size = i2d_X509_NAME( x509_name, &temp );
 
 	X509_free( x509 );
@@ -460,7 +720,7 @@ bool _IKED::text_asn1( BDATA & text, BDATA & asn1 )
 	temp.set( text );
 	temp.add( 0, 1 );
 	asn1.del( true );
-        
+
 	X509_NAME * name = X509_NAME_new();
 
 	unsigned char *	fbuff = NULL;
@@ -729,7 +989,7 @@ STACK_OF( X509 ) * build_cert_stack( IDB_LIST_CERT & certs, BDATA & leaf )
 		}
 
 		if( index2 < certs.count() )
-			sk_X509_push( chain, x509_cert1 );	
+			sk_X509_push( chain, x509_cert1 );
 		else
 		{
 			leaf = cert1;
@@ -764,14 +1024,17 @@ bool _IKED::cert_verify( IDB_LIST_CERT & certs, BDATA & ca, BDATA & cert )
 	// load ca and add to store
 	//
 
-	X509 * x509_ca;
-	if( !bdata_2_cert( &x509_ca, ca ) )
+	STACK_OF(X509) * x509_ca;
+	if( !bdata_2_certs( &x509_ca, ca ) )
 	{
 		X509_STORE_free( store );
 		return false;
 	}
 
-	X509_STORE_add_cert( store, x509_ca );
+	for (int i = 0; i < sk_X509_num(x509_ca); i++)
+	{
+		X509_STORE_add_cert( store, sk_X509_value(x509_ca, i) );
+	}
 
 #ifdef WIN32
 
@@ -843,7 +1106,7 @@ bool _IKED::cert_verify( IDB_LIST_CERT & certs, BDATA & ca, BDATA & cert )
 	//
 
 	sk_X509_pop_free( chain, X509_free );
-	X509_free( x509_ca );
+	sk_X509_free( x509_ca );
 	X509_STORE_free( store );
 
 	return ( result > 0 );

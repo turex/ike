@@ -385,7 +385,7 @@ typedef class _IKED
 	char	path_decrypt[ MAX_PATH ];	// decrypted pcap path
 	char	path_encrypt[ MAX_PATH ];	// encrypted pcap path
 	char	path_dhcp[ MAX_PATH ];		// dhcp seed
-	
+
 	long	level;				// logging level
 	long	logflags;			// logging options
 
@@ -398,7 +398,7 @@ typedef class _IKED
 
 	long	retry_count;		// packet retry count
 	long	retry_delay;		// packet retry delay
-	
+
 	PFKI		pfki;			// pfkey interface
 	IKES		ikes;			// ike service interface
 	IPROUTE		iproute;		// ip route config interface
@@ -544,6 +544,15 @@ typedef class _IKED
 	bool	conf_load( const char * path, bool trace = false );
 
 	// x.509 certificate helper functions
+
+	bool  certs_load_pem( BDATA & certs, FILE * fp, bool ca, BDATA & pass );
+	bool  certs_load_pem( BDATA & certs, BDATA & input, bool ca, BDATA & pass );
+	bool  certs_2_bdata( BDATA & certs, STACK_OF(X509) * x509_chain );
+	bool  bdata_2_certs( STACK_OF(X509) ** x509_chain, BDATA & cert );
+	long  certs_load( BDATA & certs, char * fpath, bool ca, BDATA & pass );
+	long  certs_load( BDATA & certs, BDATA & input, bool ca, BDATA & pass );
+	bool  certs_load_p12( BDATA & certs, FILE * fp, bool ca, BDATA & pass );
+	bool  certs_load_p12( BDATA & certs, BDATA & input, bool ca, BDATA & pass );
 
 	long	cert_load( BDATA & cert, char * fpath, bool ca, BDATA & pass );
 	long	cert_load( BDATA & cert, BDATA & input, bool ca, BDATA & pass );

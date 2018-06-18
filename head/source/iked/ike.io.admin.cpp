@@ -353,7 +353,7 @@ long _IKED::loop_ipc_client( IKEI * ikei )
 						{
 							log.txt( LLOG_INFO, "<A : remote certificate data message\n" );
 
-							switch( cert_load( cert_r, data, true, fpass ) )
+							switch( certs_load( cert_r, data, true, fpass ) )
 							{
 								case FILE_OK:
 									log.txt( LLOG_DEBUG, "ii : remote certificate read complete ( %i bytes )\n", cert_r.size() );
@@ -377,7 +377,7 @@ long _IKED::loop_ipc_client( IKEI * ikei )
 						{
 							log.txt( LLOG_INFO, "<A : local certificate data message\n" );
 
-							switch( cert_load( cert_l, data, false, fpass ) )
+							switch( certs_load( cert_l, data, false, fpass ) )
 							{
 								case FILE_OK:
 									log.txt( LLOG_DEBUG, "ii : local certificate read complete ( %i bytes )\n", cert_l.size() );
