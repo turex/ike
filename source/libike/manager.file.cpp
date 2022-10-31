@@ -683,7 +683,7 @@ bool _CONFIG_MANAGER::file_pcf_load( CONFIG & config, const char * path, bool & 
 			EVP_CIPHER_CTX_init(ctxc);
 
 			EVP_CipherInit_ex(
-				&ctxc,
+				ctxc,
 				EVP_des_ede3_cbc(),
 				NULL,
 				key,
@@ -691,7 +691,7 @@ bool _CONFIG_MANAGER::file_pcf_load( CONFIG & config, const char * path, bool & 
 				0 );
 
 			EVP_Cipher(
-				&ctxc,
+				ctxc,
 				pwd.buff(),
 				pwd.buff(),
 				( unsigned int ) pwd.size() );
